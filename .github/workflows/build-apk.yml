@@ -11,39 +11,119 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.11'
+          cache: 'pip'
 
-      - name: Install system dependencies
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            git zip unzip openjdk-17-jdk \
-            autoconf libtool pkg-config \
-            zlib1g-dev libncurses5-dev libncursesw5-dev \
-            cmake libffi-dev libssl-dev
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            git \
+            ffmpeg \
+            libsdl2-dev \
+            libsdl2-image-dev \
+            libsdl2-mixer-dev \
+            libsdl2-ttf-dev \
+            libportmidi-dev \
+            libswscale-dev \
+            libavformat-dev \
+            libavcodec-dev \
+            zlib1g-dev \
+            libgstreamer1.0-dev \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good \
+            libffi-dev \
+            libssl-dev \
+            autoconf \
+            automake \
+            libtool \
+            pkg-config \
+            cmake \
+            zip \
+            unzip \
+            tar
 
-      - name: Install Buildozer
+      - name: Install Python Build Dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          pip install buildozer cython==0.29.34
+          pip install --upgrade Cython==0.29.36 buildozer virtualenv
 
-      - name: Build APK
+      - name: Pre-accept Android SDK Licenses for Buildozer
         run: |
-          yes | buildozer android debug
+          # Buildozer establishes its target SDK directory inside ~/.buildozer
+          TARGET_SDK_DIR="$HOME/.buildozer/android/platform/android-sdk"
+          LICENSES_DIR="$TARGET_SDK_DIR/licenses"
+          mkdir -p "$LICENSES_DIR"
 
-      - name: Check APK
+          # Write all official license hashes directly to eliminate license negotiation failures
+          # 1. Main Android SDK License (covers platforms, build-tools including 34.x-37.x)
+          cat << 'EOF' > "$LICENSES_DIR/android-sdk-license"
+          8933bad161af4178b1185d1a37fbf41ea5269c55
+          d56f5187479451eabf01fb78af6dfcb131a6481e
+          24333f8a63b6825ea9c5514f83c2829b004d1fee
+          EOF
+
+          # 2. Android SDK Preview License (build-tools 36.x/37.x previews)
+          cat << 'EOF' > "$LICENSES_DIR/android-sdk-preview-license"
+          84831b9409646a5d80e44ac3bc8249668324c4f2
+          EOF
+
+          # 3. Android SDK Arm Dbt License
+          cat << 'EOF' > "$LICENSES_DIR/android-sdk-arm-dbt-license"
+          859f317696e3f23621d44d4239b49e11b512bbad
+          EOF
+
+          # 4. MIPS / Extra Licenses
+          cat << 'EOF' > "$LICENSES_DIR/mips-android-sysimage-license"
+          e9acab583f65fe69b14d46ce3732f3b8531be3d8
+          EOF
+
+          # Also sync licenses from the runner's pre-installed SDK if present
+          if [ -d "$ANDROID_HOME/licenses" ]; then
+            cp -rn "$ANDROID_HOME/licenses/"* "$LICENSES_DIR/" || true
+          fi
+
+      - name: Build APK with Buildozer
+        env:
+          APP_ANDROID_ACCEPT_SDK_LICENSE: "1"
         run: |
-          ls -lah bin/
-          test -n "$(find bin -name '*.apk' -print -quit)"
+          # Run buildozer in debug mode with verbose logging
+          buildozer -v android debug
 
-      - name: Upload APK
+      - name: Verify APK Generation
+        run: |
+          if [ ! -d "bin" ]; then
+            echo "::error::The bin directory was not created."
+            exit 1
+          fi
+
+          APK_FILE=$(find bin/ -type f -name "*.apk" | head -n 1)
+
+          if [ -z "$APK_FILE" ]; then
+            echo "::error::No .apk file was generated in bin/."
+            ls -la bin/
+            exit 1
+          fi
+
+          echo "Found generated APK: $APK_FILE"
+          echo "APK_PATH=$APK_FILE" >> $GITHUB_ENV
+
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: WiFi-Phone-APK
           path: bin/*.apk
+          retention-days: 14
