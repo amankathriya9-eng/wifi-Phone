@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WiFi Call — Same Network Calling</title>
+<style>
+  :root{
+    --bg:#0E1420;
+    --panel:#161E2E;
+    --line:#26314A;
+    --accent:#3DDC97;
+    --accent-dim:#1E5A44;
+    --warn:#E2574C;
+    --text:#EAF0F8;
+    --text-dim:#8A96AE;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    background:var(--bg);
+    color:var(--text);
+    min-height:100vh;
+    padding:24px 16px 60px;
+  }
+  .wrap{max-width:520px; margin:0 auto;}
+
+  header{text-align:center; margin-bottom:28px;}
+  header .icon{font-size:36px; margin-bottom:6px;}
+  header h1{font-size:22px; font-weight:600; margin:0 0 6px;}
+  header p{color:var(--text-dim); font-size:14px; margin:0; line-height:1.5;}
+
+  .status-pill{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    justify-content:center;
+    font-size:13px;
+    color:var(--text-dim);
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:999px;
+    padding:8px 16px;
+    margin:0 auto 24px;
+    width:fit-content;
+  }
+  .dot{width:8px; height:8px; border-radius:50%; background:var(--text-dim);}
+  .dot.live{background:var(--accent); box-shadow:0 0 8px var(--accent);}
+  .dot.warn{background:var(--warn);}
+
+  .tabs{display:flex; gap:8px; margin-bottom:18px;}
+  .tab{
+    flex:1;
+    text-align:center;
+    padding:12px;
+    border-radius:12px;
+    background:var(--panel);
+    border:1px solid var(--line);
+    color:var(--text-dim);
+    font-size:14px;
+    font-weight:500;
+    cursor:pointer;
+  }
+  .tab.active{
+    color:var(--bg);
+    background:var(--accent);
+    border-color:var(--accent);
+  }
+
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:16px;
+    padding:20px;
+    margin-bottom:16px;
+  }
+  .panel h2{font-size:15px; font-weight:600; margin:0 0 4px;}
+  .panel .step-desc{font-size:13px; color:var(--text-dim); margin:0 0 14px; line-height:1.5;}
+
+  .hidden{display:none !important;}
+
+  textarea{
+    width:100%;
+    min-height:90px;
+    background:#0A0F18;
+    border:1px solid var(--line);
+    border-radius:10px;
+    color:var(--text);
+    font-size:12px;
+    font-family: ui-monospace, monospace;
+    padding:10px;
+    resize:vertical;
+  }
+
+  .btn{
+    width:100%;
+    padding:13px;
+    border-radius:10px;
+    border:none;
+    font-size:14px;
+    font-weight:600;
+    cursor:pointer;
+    margin-top:10px;
+  }
+  .btn-primary{background:var(--accent); color:#06251A;}
+  .btn-secondary{background:transparent; color:var(--text); border:1px solid var(--line);}
+  .btn-danger{background:var(--warn); color:#2A0906;}
+  .btn:disabled{opacity:0.4; cursor:not-allowed;}
+  .btn-row{display:flex; gap:8px;}
+  .btn-row .btn{margin-top:0;}
+
+  .call-controls{
+    display:flex;
+    justify-content:center;
+    gap:16px;
+    margin-top:20px;
+  }
+  .round-btn{
+    width:56px; height:56px;
+    border-radius:50%;
+    border:1px solid var(--line);
+    background:var(--panel);
+    color:var(--text);
+    font-size:20px;
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer;
+  }
+  .round-btn.active{background:var(--accent); color:#06251A; border-color:var(--accent);}
+  .round-btn.end{background:var(--warn); color:#2A0906; border-color:var(--warn);}
+
+  .copy-note{font-size:12px; color:var(--accent); margin-top:6px; min-height:16px;}
+
+  audio{display:none;}
+
+  .hint{
+    font-size:12px;
+    color:var(--text-dim);
+    background:rgba(61,220,151,0.08);
+    border:1px solid var(--accent-dim);
+    border-radius:10px;
+    padding:10px 12px;
+    margin-top:16px;
+    line-height:1.5;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="icon">📶</div>
+    <h1>WiFi Call</h1>
+    <p>Same WiFi network par direct call — bina internet data ke, bina server ke.</p>
+  </header>
+
+  <div class="status-pill">
+    <span class="dot" id="statusDot"></span>
+    <span id="statusText">Disconnected</span>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" id="tabStart">Call banao</div>
+    <div class="tab" id="tabJoin">Call join karo</div>
+  </div>
+
+  <!-- CALLER FLOW -->
+  <div id="startFlow">
+    <div class="panel">
+      <h2>Step 1 — Call shuru karo</h2>
+      <p class="step-desc">Button dabao, mic permission do. Neeche ek code ban jayega — wo doosre device ko WhatsApp/text se bhej do.</p>
+      <button class="btn btn-primary" id="createCallBtn">🎙️ Naya call banao</button>
+      <div id="offerBox" class="hidden">
+        <textarea id="offerOutput" readonly></textarea>
+        <button class="btn btn-secondary" id="copyOfferBtn">Code copy karo</button>
+        <div class="copy-note" id="offerCopyNote"></div>
+      </div>
+    </div>
+
+    <div class="panel hidden" id="answerPanel">
+      <h2>Step 2 — Unka reply code paste karo</h2>
+      <p class="step-desc">Doosre device se jo code aaya hai, wo yahan paste karke connect dabao.</p>
+      <textarea id="answerInput" placeholder="Yahan unka answer code paste karo..."></textarea>
+      <button class="btn btn-primary" id="connectBtn">Connect karo</button>
+    </div>
+  </div>
+
+  <!-- CALLEE FLOW -->
+  <div id="joinFlow" class="hidden">
+    <div class="panel">
+      <h2>Step 1 — Unka code paste karo</h2>
+      <p class="step-desc">Jis device ne call banayi hai, uska code yahan paste karo.</p>
+      <textarea id="offerInput" placeholder="Yahan caller ka code paste karo..."></textarea>
+      <button class="btn btn-primary" id="joinCallBtn">🎙️ Join karo</button>
+    </div>
+
+    <div class="panel hidden" id="replyPanel">
+      <h2>Step 2 — Ye reply code unko bhejo</h2>
+      <p class="step-desc">Ye code caller ko wapas bhejo. Wo apne device par paste karke connect karega, phir call jud jayegi.</p>
+      <textarea id="answerOutput" readonly></textarea>
+      <button class="btn btn-secondary" id="copyAnswerBtn">Code copy karo</button>
+      <div class="copy-note" id="answerCopyNote"></div>
+    </div>
+  </div>
+
+  <div id="controls" class="hidden">
+    <div class="call-controls">
+      <button class="round-btn" id="muteBtn" title="Mute">🎤</button>
+      <button class="round-btn end" id="hangupBtn" title="Hangup">📵</button>
+    </div>
+  </div>
+
+  <div class="hint">
+    💡 Ye same WiFi/local network par kaam karta hai — mobile data ki zaroorat nahi. Dono devices ek hi router se connected hone chahiye. Ek device "Call banao" karega, doosra "Call join karo".
+  </div>
+
+  <audio id="remoteAudio" autoplay playsinline></audio>
+</div>
+
+<script>
+let pc = null;
+let localStream = null;
+let muted = false;
+
+const statusDot = document.getElementById('statusDot');
+const statusText = document.getElementById('statusText');
+const controls = document.getElementById('controls');
+const remoteAudio = document.getElementById('remoteAudio');
+
+function setStatus(text, mode){
+  statusText.textContent = text;
+  statusDot.className = 'dot' + (mode ? ' ' + mode : '');
+}
+
+// Tabs
+const tabStart = document.getElementById('tabStart');
+const tabJoin = document.getElementById('tabJoin');
+const startFlow = document.getElementById('startFlow');
+const joinFlow = document.getElementById('joinFlow');
+
+tabStart.onclick = () => {
+  tabStart.classList.add('active');
+  tabJoin.classList.remove('active');
+  startFlow.classList.remove('hidden');
+  joinFlow.classList.add('hidden');
+};
+tabJoin.onclick = () => {
+  tabJoin.classList.add('active');
+  tabStart.classList.remove('active');
+  joinFlow.classList.remove('hidden');
+  startFlow.classList.add('hidden');
+};
+
+function createPeerConnection(){
+  const peer = new RTCPeerConnection({ iceServers: [] });
+  peer.ontrack = (e) => {
+    remoteAudio.srcObject = e.streams[0];
+  };
+  peer.onconnectionstatechange = () => {
+    if(peer.connectionState === 'connected'){
+      setStatus('Connected — call chal rahi hai', 'live');
+      controls.classList.remove('hidden');
+    } else if(peer.connectionState === 'disconnected' || peer.connectionState === 'failed'){
+      setStatus('Disconnected', 'warn');
+    } else if(peer.connectionState === 'connecting'){
+      setStatus('Connecting...', '');
+    }
+  };
+  return peer;
+}
+
+function waitForIceGathering(peer){
+  return new Promise((resolve) => {
+    if(peer.iceGatheringState === 'complete'){
+      resolve();
+    } else {
+      function check(){
+        if(peer.iceGatheringState === 'complete'){
+          peer.removeEventListener('icegatheringstatechange', check);
+          resolve();
+        }
+      }
+      peer.addEventListener('icegatheringstatechange', check);
+    }
+  });
+}
+
+// ---------- CALLER ----------
+document.getElementById('createCallBtn').onclick = async () => {
+  const btn = document.getElementById('createCallBtn');
+  btn.disabled = true;
+  btn.textContent = 'Mic ki ijazat maango...';
+  try{
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  }catch(err){
+    setStatus('Mic permission nahi mili', 'warn');
+    btn.disabled = false;
+    btn.textContent = '🎙️ Naya call banao';
+    return;
+  }
+
+  pc = createPeerConnection();
+  localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  await waitForIceGathering(pc);
+
+  const code = btoa(JSON.stringify(pc.localDescription));
+  document.getElementById('offerOutput').value = code;
+  document.getElementById('offerBox').classList.remove('hidden');
+  document.getElementById('answerPanel').classList.remove('hidden');
+  btn.textContent = 'Code ban gaya ✓';
+  setStatus('Reply code ka wait ho raha hai', '');
+};
+
+document.getElementById('copyOfferBtn').onclick = () => {
+  const out = document.getElementById('offerOutput');
+  out.select();
+  navigator.clipboard.writeText(out.value);
+  document.getElementById('offerCopyNote').textContent = 'Copy ho gaya — ab isse doosre device ko bhejo.';
+};
+
+document.getElementById('connectBtn').onclick = async () => {
+  const val = document.getElementById('answerInput').value.trim();
+  if(!val || !pc) return;
+  try{
+    const desc = JSON.parse(atob(val));
+    await pc.setRemoteDescription(desc);
+    setStatus('Connect ho raha hai...', '');
+  }catch(err){
+    setStatus('Code galat hai, dobara check karo', 'warn');
+  }
+};
+
+// ---------- CALLEE ----------
+document.getElementById('joinCallBtn').onclick = async () => {
+  const btn = document.getElementById('joinCallBtn');
+  const val = document.getElementById('offerInput').value.trim();
+  if(!val) return;
+
+  btn.disabled = true;
+  btn.textContent = 'Mic ki ijazat maango...';
+
+  let offerDesc;
+  try{
+    offerDesc = JSON.parse(atob(val));
+  }catch(err){
+    setStatus('Code galat hai', 'warn');
+    btn.disabled = false;
+    btn.textContent = '🎙️ Join karo';
+    return;
+  }
+
+  try{
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  }catch(err){
+    setStatus('Mic permission nahi mili', 'warn');
+    btn.disabled = false;
+    btn.textContent = '🎙️ Join karo';
+    return;
+  }
+
+  pc = createPeerConnection();
+  localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+  await pc.setRemoteDescription(offerDesc);
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  await waitForIceGathering(pc);
+
+  const code = btoa(JSON.stringify(pc.localDescription));
+  document.getElementById('answerOutput').value = code;
+  document.getElementById('replyPanel').classList.remove('hidden');
+  btn.textContent = 'Reply code ban gaya ✓';
+  setStatus('Caller ke connect hone ka wait ho raha hai', '');
+};
+
+document.getElementById('copyAnswerBtn').onclick = () => {
+  const out = document.getElementById('answerOutput');
+  out.select();
+  navigator.clipboard.writeText(out.value);
+  document.getElementById('answerCopyNote').textContent = 'Copy ho gaya — ab isse caller ko wapas bhejo.';
+};
+
+// ---------- CALL CONTROLS ----------
+document.getElementById('muteBtn').onclick = (e) => {
+  if(!localStream) return;
+  muted = !muted;
+  localStream.getAudioTracks().forEach(t => t.enabled = !muted);
+  e.currentTarget.classList.toggle('active', muted);
+  e.currentTarget.textContent = muted ? '🔇' : '🎤';
+};
+
+document.getElementById('hangupBtn').onclick = () => {
+  if(pc) pc.close();
+  if(localStream) localStream.getTracks().forEach(t => t.stop());
+  pc = null;
+  localStream = null;
+  controls.classList.add('hidden');
+  setStatus('Call khatam', '');
+};
+</script>
+</body>
+</html>
