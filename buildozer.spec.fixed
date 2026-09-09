@@ -1,0 +1,31 @@
+[app]
+
+title = WiFi Phone
+package.name = wifiphone
+package.domain = com.aman.wifiphone
+
+source.dir = .
+source.include_exts = py,html,css,js,png,jpg,jpeg
+version = 1.0
+
+requirements = python3,kivy,pyjnius
+orientation = portrait
+
+android.enable_androidx = True
+android.api = 35
+android.minapi = 23
+
+android.permissions = RECORD_AUDIO,MODIFY_AUDIO_SETTINGS,ACCESS_WIFI_STATE,CHANGE_WIFI_STATE,ACCESS_NETWORK_STATE,ACCESS_FINE_LOCATION,POST_NOTIFICATIONS
+android.private_storage = True
+
+p4a.bootstrap = sdl2
+p4a.branch = develop
+android.accept_sdk_license = True
+
+android.entrypoint = org.kivy.android.PythonActivity
+android.apptheme = @android:style/Theme.Material.Light.NoActionBar
+android.archs = arm64-v8a,armeabi-v7a
+
+[buildozer]
+log_level = 2
+warn_on_root = 1
