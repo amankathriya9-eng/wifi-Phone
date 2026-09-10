@@ -1,0 +1,135 @@
+name: Build AK Recovery ISO
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Bootable Recovery ISO
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: powershell
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate Source Repository Structure
+        run: |
+          $RequiredFiles = @(
+              "AKRecovery.py",
+              "requirements.txt",
+              "scripts\build_iso.ps1",
+              "scripts\start-recovery.cmd"
+          )
+          foreach ($f in$RequiredFiles) {
+              if (-not (Test-Path -Path $f)) {
+                  Write-Error "CRITICAL: Required source file '$f' is missing from the repository root."
+                  exit 1
+              }
+          }
+          Write-Host "Repository source integrity verified." -ForegroundColor Green
+
+      - name: Setup Runner Python (3.11)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Runner Verification Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Bytecode Compilation Check (py_compile)
+        run: |
+          Write-Host "Compiling AKRecovery.py bytecode..." -ForegroundColor Cyan
+          python -m py_compile AKRecovery.py
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "py_compile verification failed."
+              exit 1
+          }
+          Write-Host "py_compile verification PASSED." -ForegroundColor Green
+
+      - name: Execute Production Self-Test Suite
+        run: |
+          Write-Host "Executing AKRecovery.py --self-test on runner..." -ForegroundColor Cyan
+          python AKRecovery.py --self-test
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "AKRecovery.py self-test suite failed with exit code $LASTEXITCODE."
+              exit 1
+          }
+          Write-Host "Self-test suite PASSED." -ForegroundColor Green
+
+      - name: Validate PowerShell Script Syntax
+        run: |
+          Write-Host "Validating PowerShell script syntax for build_iso.ps1..." -ForegroundColor Cyan
+          $parseErrors = $null$tokens = $null$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path "scripts\build_iso.ps1"),
+              [ref]$tokens,
+              [ref]$parseErrors
+          )
+          if ($parseErrors.Count -gt 0) {
+              foreach ($err in$parseErrors) {
+                  Write-Host "Parse Error at line $($err.Extent.StartLineNumber): $($err.Message)" -ForegroundColor Red
+              }
+              Write-Error "scripts\build_iso.ps1 contains syntax errors."
+              exit 1
+          }
+          Write-Host "scripts\build_iso.ps1 syntax verification PASSED." -ForegroundColor Green
+
+      - name: Install Windows ADK & WinPE Add-on (10.1.26100.2454 / 24H2)
+        run: |
+          $AdkInstaller = "$env:TEMP\adksetup.exe"
+          $WinpeInstaller = "$env:TEMP\adkwinpesetup.exe"
+
+          Write-Host "Downloading Windows 11 ADK (10.1.26100.2454)..." -ForegroundColor Cyan
+          $wc = New-Object System.Net.WebClient
+          $wc.DownloadFile("https://download.microsoft.com/download/6/4/d/64d7c07b-b8cf-448f-8d26-78b17a1a4773/adk/adksetup.exe", $AdkInstaller)
+
+          Write-Host "Installing Windows ADK Deployment Tools..." -ForegroundColor Cyan
+          $adkProc = Start-Process -FilePath$AdkInstaller -ArgumentList "/quiet", "/norestart", "/features", "OptionId.DeploymentTools" -Wait -PassThru
+          if ($adkProc.ExitCode -ne 0) {
+              Write-Error "Windows ADK installer failed with exit code $($adkProc.ExitCode)."
+              exit 1
+          }
+
+          Write-Host "Downloading Windows PE Add-on for ADK (10.1.26100.2454)..." -ForegroundColor Cyan
+          $wc.DownloadFile("https://download.microsoft.com/download/a/f/4/af411707-16d1-422a-89a0-6b6cb8c306d8/adkwinpeaddons/adkwinpesetup.exe", $WinpeInstaller)
+
+          Write-Host "Installing Windows PE Add-on..." -ForegroundColor Cyan
+          $peProc = Start-Process -FilePath$WinpeInstaller -ArgumentList "/quiet", "/norestart", "/features", "OptionId.WindowsPreinstallationEnvironment" -Wait -PassThru
+          if ($peProc.ExitCode -ne 0) {
+              Write-Error "WinPE Add-on installer failed with exit code $($peProc.ExitCode)."
+              exit 1
+          }
+
+          Write-Host "Windows ADK and WinPE Add-on installed successfully." -ForegroundColor Green
+
+      - name: Execute ISO Build Automation
+        run: |
+          Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
+          .\scripts\build_iso.ps1 -PythonVersion "3.11.9" -OutputFile "AKRecovery_Environment.iso"
+
+      - name: Validate Output Artifact
+        run: |
+          if (-not (Test-Path "AKRecovery_Environment.iso")) {
+              Write-Error "Build completed but AKRecovery_Environment.iso was not created."
+              exit 1
+          }
+          $item = Get-Item "AKRecovery_Environment.iso"
+          Write-Host "Generated ISO: $($item.FullName)" -ForegroundColor Green
+          Write-Host "Size: $([math]::Round($item.Length / 1MB, 2)) MB" -ForegroundColor Green
+
+      - name: Upload Recovery ISO Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AKRecovery-x64-ISO
+          path: AKRecovery_Environment.iso
+          if-no-files-found: error
+          retention-days: 14
